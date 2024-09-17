@@ -1,0 +1,210 @@
+public with sharing class GoogleDriveIntegrationController {
+    private static final String GOOGLE_DRIVE_BASE_URL = 'https://www.googleapis.com/drive/v3/files';
+
+    // Get Files (Read)
+    @AuraEnabled
+    public static String getGoogleDriveFiles() {
+        String accessToken = GoogleOAuthUtility.getAccessToken();
+
+        HttpRequest request = new HttpRequest();
+        request.setEndpoint(GOOGLE_DRIVE_BASE_URL);
+        request.setMethod('GET');
+        request.setHeader('Authorization', 'Bearer ' + accessToken);
+
+        try {
+            // Send the HTTP request
+            Http http = new Http();
+            HttpResponse response = http.send(request);
+
+            if (response.getStatusCode() == 200) {
+                System.debug('Hiiii'+response.getBody());
+                return response.getBody();
+            } else {
+                throw new AuraHandledException('Failed to fetch files. Status: ' + response.getStatusCode());
+            }
+        } catch (Exception e) {
+            throw new AuraHandledException('Error fetching files: ' + e.getMessage());
+        }
+    }
+    @AuraEnabled
+public static String getGoogleDriveTrashFiles() {
+    String accessToken = GoogleOAuthUtility.getAccessToken();
+
+    // Define the endpoint URL with the query to fetch trashed files
+    String endpoint = 'https://www.googleapis.com/drive/v3/files?q=trashed=true';
+
+    HttpRequest request = new HttpRequest();
+    request.setEndpoint(endpoint);
+    request.setMethod('GET');
+    request.setHeader('Authorization', 'Bearer ' + accessToken);
+
+    try {
+        // Send the HTTP request
+        Http http = new Http();
+        HttpResponse response = http.send(request);
+
+        if (response.getStatusCode() == 200) {
+            System.debug('Response Body: ' + response.getBody());
+            return response.getBody();
+        } else {
+            throw new AuraHandledException('Failed to fetch files. Status: ' + response.getStatusCode());
+        }
+    } catch (Exception e) {
+        throw new AuraHandledException('Error fetching files: ' + e.getMessage());
+    }
+}
+
+@AuraEnabled
+public static String uploadGoogleDriveFile(String fileName, String mimeType, String base64Content) {
+    String accessToken = GoogleOAuthUtility.getAccessToken();
+
+    // Define the endpoint for Google Drive API
+    String endpoint = 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart';
+
+    HttpRequest request = new HttpRequest();
+    request.setEndpoint(endpoint);
+    request.setMethod('POST');
+    request.setHeader('Authorization', 'Bearer ' + accessToken);
+    request.setHeader('Content-Type', 'multipart/related; boundary=foo_bar_baz');
+
+    // Construct the multipart body with metadata and base64 file content
+    String body = '--foo_bar_baz\r\n' +
+                  'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
+                  '{"name": "' + fileName + '", "mimeType": "' + mimeType + '"}\r\n' +
+                  '--foo_bar_baz\r\n' +
+                  'Content-Type: ' + mimeType + '\r\n' +
+                  'Content-Transfer-Encoding: base64\r\n\r\n' +
+                  base64Content + '\r\n' +
+                  '--foo_bar_baz--';
+
+    request.setBody(body);
+
+    try {
+        Http http = new Http();
+        HttpResponse response = http.send(request);
+
+        // Check response status
+        if (response.getStatusCode() == 200 || response.getStatusCode() == 201) {
+            return response.getBody();
+        } else {
+            // Log and throw detailed error message
+            String errorMessage = 'File upload failed. Status: ' + response.getStatusCode() + 
+                                  ', Response Body: ' + response.getBody();
+            System.debug(errorMessage);
+            throw new AuraHandledException(errorMessage);
+        }
+    } catch (Exception e) {
+        // Log the exception and throw a handled exception
+        System.debug('Error uploading file: ' + e.getMessage());
+        throw new AuraHandledException('Error uploading file: ' + e.getMessage());
+    }
+}
+
+
+    
+    // Update File (Rename)
+    @AuraEnabled
+    public static String updateGoogleDriveFile(String fileId, String newFileName) {
+        String accessToken = GoogleOAuthUtility.getAccessToken();
+
+        HttpRequest request = new HttpRequest();
+        request.setEndpoint(GOOGLE_DRIVE_BASE_URL + '/' + fileId);
+        request.setMethod('PATCH');
+        request.setHeader('Authorization', 'Bearer ' + accessToken);
+        request.setHeader('Content-Type', 'application/json');
+
+        String body = '{"name": "' + newFileName + '"}';
+        request.setBody(body);
+
+        try {
+            Http http = new Http();
+            HttpResponse response = http.send(request);
+
+            if (response.getStatusCode() == 200) {
+                return response.getBody();
+            } else {
+                throw new AuraHandledException('File rename failed. Status: ' + response.getStatusCode());
+            }
+        } catch (Exception e) {
+            throw new AuraHandledException('Error renaming file: ' + e.getMessage());
+        }
+    }
+
+    // Delete File
+    @AuraEnabled
+    public static void deleteGoogleDriveFile(String fileId) {
+        String accessToken = GoogleOAuthUtility.getAccessToken();
+
+        HttpRequest request = new HttpRequest();
+        request.setEndpoint(GOOGLE_DRIVE_BASE_URL + '/' + fileId);
+        request.setMethod('DELETE');
+        request.setHeader('Authorization', 'Bearer ' + accessToken);
+
+        try {
+            Http http = new Http();
+            HttpResponse response = http.send(request);
+
+            if (response.getStatusCode() != 204) {
+                throw new AuraHandledException('Failed to delete file. Status: ' + response.getStatusCode());
+            }
+        } catch (Exception e) {
+            throw new AuraHandledException('Error deleting file: ' + e.getMessage());
+        }
+    }
+
+    @AuraEnabled
+    public static void moveGoogleDriveFileToTrash(String fileId) {
+    String accessToken = GoogleOAuthUtility.getAccessToken();
+
+    HttpRequest request = new HttpRequest();
+    request.setEndpoint(GOOGLE_DRIVE_BASE_URL + '/' + fileId);
+    request.setMethod('PATCH');
+    request.setHeader('Authorization', 'Bearer ' + accessToken);
+    request.setHeader('Content-Type', 'application/json');
+
+    // Body for the PATCH request, setting "trashed" to true
+    String requestBody = '{"trashed": true}';
+    request.setBody(requestBody);
+
+    try {
+        Http http = new Http();
+        HttpResponse response = http.send(request);
+
+        if (response.getStatusCode() != 200) {
+            throw new AuraHandledException('Failed to move file to trash. Status: ' + response.getStatusCode() + ' Response: ' + response.getBody());
+        }
+    } catch (Exception e) {
+        throw new AuraHandledException('Error moving file to trash: ' + e.getMessage());
+    }
+}
+@AuraEnabled
+public static String getGoogleDriveFilesWithOutTrash() {
+    String accessToken = GoogleOAuthUtility.getAccessToken();
+
+    // Construct the query parameter to exclude trashed files
+     String query = 'trashed = false';
+    String endpoint = GOOGLE_DRIVE_BASE_URL + '?q=' + EncodingUtil.urlEncode(query, 'UTF-8');
+
+    HttpRequest request = new HttpRequest();
+    request.setEndpoint(endpoint);
+    request.setMethod('GET');
+    request.setHeader('Authorization', 'Bearer ' + accessToken);
+
+    try {
+        // Send the HTTP request
+        Http http = new Http();
+        HttpResponse response = http.send(request);
+
+        if (response.getStatusCode() == 200) {
+            System.debug('Response Body: ' + response.getBody());
+            return response.getBody();
+        } else {
+            throw new AuraHandledException('Failed to fetch files. Status: ' + response.getStatusCode());
+        }
+    } catch (Exception e) {
+        throw new AuraHandledException('Error fetching files: ' + e.getMessage());
+    }
+}
+
+
+}
