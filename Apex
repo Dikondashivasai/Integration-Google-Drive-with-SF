@@ -1,1 +1,42 @@
+public class GoogleOAuthUtility {
+    private static final String TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token';
 
+    // Method to refresh the access token
+    public static String getAccessToken() {
+        // Retrieve values from List Custom Setting (MyCustomSettingGoogle__c)
+        MyCustomSettingGoogle__c setting = MyCustomSettingGoogle__c.getOrgDefaults(); // Use getInstance for List Custom Setting
+        
+        if (setting == null) {
+            throw new AuraHandledException('Custom setting not found for the provided name.');
+        }
+
+        // Access the custom setting values dynamically
+        String clientId = setting.Client_key__c;
+        String clientSecret = setting.Client_Secret__c;
+        String refreshToken = setting.Refresh_Token__c;
+
+        // Make an HTTP POST request to the token endpoint
+        HttpRequest req = new HttpRequest();
+        req.setEndpoint(TOKEN_ENDPOINT);
+        req.setMethod('POST');
+        req.setHeader('Content-Type', 'application/x-www-form-urlencoded');
+
+        // Refresh token parameters
+        String body = 'client_id=' + clientId +
+                      '&client_secret=' + clientSecret +
+                      '&refresh_token=' + refreshToken +
+                      '&grant_type=refresh_token';
+        req.setBody(body);
+
+        Http http = new Http();
+        HttpResponse res = http.send(req);
+
+        if (res.getStatusCode() == 200) {
+            // Parse the JSON response to extract the access token
+            Map<String, Object> responseBody = (Map<String, Object>) JSON.deserializeUntyped(res.getBody());
+            return (String) responseBody.get('access_token');
+        } else {
+            throw new AuraHandledException('Failed to refresh access token: ' + res.getBody());
+        }
+    }
+}
