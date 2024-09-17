@@ -1,0 +1,207 @@
+import { LightningElement, track } from 'lwc';
+import getGoogleDriveFiles from '@salesforce/apex/GoogleDriveIntegrationController.getGoogleDriveFilesWithOutTrash';
+import uploadGoogleDriveFile from '@salesforce/apex/GoogleDriveIntegrationController.uploadGoogleDriveFile';
+import updateGoogleDriveFile from '@salesforce/apex/GoogleDriveIntegrationController.updateGoogleDriveFile';
+import deleteGoogleDriveFile from '@salesforce/apex/GoogleDriveIntegrationController.deleteGoogleDriveFile';
+import moveGoogleDriveFileToTrash from '@salesforce/apex/GoogleDriveIntegrationController.moveGoogleDriveFileToTrash';
+import { ShowToastEvent } from 'lightning/platformShowToastEvent';
+
+export default class DriveManager extends LightningElement {
+    @track files = [];
+    @track fileName = '';
+    @track fileContent = '';
+    @track selectedFileId = '';
+    @track newFileName = '';
+    @track showUpdateModal = false;
+    @track isSubmitDisabled = true;
+    @track isSubmitDisabledLoadfiles = false;
+    @track isUploading = false;
+    @track yesDelete = false;
+
+    // Fetch files from Google Drive
+    fetchFiles() {
+        this.isUploading = true;
+        getGoogleDriveFiles()
+            .then(result => {
+                const parsedResult = JSON.parse(result); // Parse the response
+                this.files = parsedResult.files; // Assign files to the tracked property
+                console.log('Files fetched successfully:', this.files); // Debugging log
+                this.isSubmitDisabledLoadfiles = true;
+                this.isSubmitDisabled = true;
+            })
+            .catch(error => {
+                console.error('Error fetching files:', error);
+                this.showToast('Error', 'Failed to fetch files: ' + error.body.message, 'error');
+            });
+        setTimeout(() => {
+            this.isUploading = false;  // Turn off spinner once upload is done
+        }, 2000)
+    }
+
+    // Handle file selection
+    fileHandler(event) {
+        const files = event.target.files;
+        if (files.length > 0) {
+            this.fileName = files[0].name;
+            this.readFileAsBase64(files[0]);
+        }
+        console.log('isSubmitDisabled:', this.isSubmitDisabled);
+    }
+
+    // Read file as Base64
+    readFileAsBase64(file) {
+        const reader = new FileReader();
+        reader.onload = () => {
+            const base64 = reader.result.split(',')[1]; // Get Base64 content
+            this.fileContent = base64;
+            this.isSubmitDisabled = false; // Enable the submit button once the file is ready
+        };
+        reader.readAsDataURL(file);
+    }
+
+    // Upload a new file to Google Drive
+    uploadFile() {
+        this.isUploading = true;
+        this.isSubmitDisabled = true;
+        console.log('isSubmitDisabled:', this.isSubmitDisabled);
+        if (this.fileContent && this.fileName) {
+            const fileExtension = this.fileName.split('.').pop().toLowerCase();
+            let mimeType = 'application/octet-stream'; // Default mime type
+
+            switch (fileExtension) {
+                case 'png':
+                    mimeType = 'image/png';
+                    break;
+                case 'jpg':
+                case 'jpeg':
+                    mimeType = 'image/jpeg';
+                    break;
+                case 'pdf':
+                    mimeType = 'application/pdf';
+                    break;
+                case 'txt':
+                    mimeType = 'text/plain';
+                    break;
+                case 'zip':
+                    mimeType = 'application/zip';
+                    break;
+                default:
+                    break;
+            }
+            uploadGoogleDriveFile({ fileName: this.fileName, mimeType, base64Content: this.fileContent })
+                .then(result => {
+                    this.showToast('Success', 'File uploaded successfully', 'success');
+                    this.fetchFiles(); // Refresh the file list
+
+                })
+                .catch(error => {
+                    this.showToast('Error', 'Failed to upload file: ' + error.body.message, 'error');
+                });
+
+        } else {
+            this.showToast('Error', 'Please select a file before uploading', 'error');
+        }
+        setTimeout(() => {
+            this.isUploading = false;  // Turn off spinner once upload is done
+        }, 2000)
+    }
+
+    // Show toast messages
+    showToast(title, message, variant) {
+        const event = new ShowToastEvent({
+            title,
+            message,
+            variant
+        });
+        this.dispatchEvent(event);
+    }
+
+    handleDeleteClick(event) {
+        this.fileId = event.target.dataset.id; // Get the file ID from the data attribute
+        this.yesDelete = true; // Show the modal
+    }
+    // Delete a file
+    deleteFile() {
+        if (this.fileId) {
+            deleteGoogleDriveFile({ fileId: this.fileId })
+                .then(() => {
+                    this.yesDelete = false;
+                    this.isUploading = true;
+                    this.showToast('Success', 'File deleted successfully', 'success');
+                    this.fetchFiles();
+                    // Refresh the file list
+                })
+                .catch(error => {
+                    this.showToast('Error', 'Error deleting file: ' + error.body.message, 'error');
+                });
+            setTimeout(() => {
+                this.isUploading = false;  // Turn off spinner once upload is done
+            }, 2000)
+        }
+    }
+    // Trash a file
+    moveToTrash(event) {
+        this.isUploading = true;
+        const fileId = event.target.dataset.id;
+        moveGoogleDriveFileToTrash({ fileId })
+            .then(() => {
+                this.showToast('Success', 'File is successfully moved to Trash', 'success');
+                this.fetchFiles(); // Refresh the file list
+            })
+            .catch(error => {
+                this.showToast('Error', 'Error Google Drive File To Trash file: ' + error.body.message, 'error');
+            });
+        setTimeout(() => {
+            this.isUploading = false;  // Turn off spinner once upload is done
+        }, 2000)
+    }
+
+    openUpdateFileModal(event) {
+        this.selectedFileId = event.target.dataset.id;
+        this.newFileName = this.files.find(file => file.id === this.selectedFileId).name;
+        this.showUpdateModal = true;
+    }
+
+    updateFile() {
+    const inputField = this.template.querySelector('.new-file-name');
+    if (!inputField.checkValidity()) {
+        inputField.reportValidity();
+        return;
+    }
+
+
+    const newFileName = inputField.value;
+    // if (!newFileName) {
+    //     console.error('File name cannot be empty');
+    //     inputField.setCustomValidity("Please fill in the details");
+    //     inputField.reportValidity();
+    //     return;
+    // }
+
+    console.log('File renamed null', newFileName);
+    this.isUploading = true;
+    updateGoogleDriveFile({ fileId: this.selectedFileId, newFileName })
+        .then(() => {
+            console.log('File renamed successfully');
+            this.fetchFiles();
+            this.showUpdateModal = false;
+        })
+        .catch(error => {
+            console.error('Error updating file:', error);
+        })
+        .finally(() => {
+            this.isUploading = false;
+        });
+}
+
+    closeHandler() {
+        console.log('File closeHandler successfully');
+        this.showUpdateModal = false;
+        console.log('closeUpdateFileModal:', this.showUpdateModal);
+    }
+    closeModal() {
+        console.log('closeUpdateFileModal:', this.yesDelete);
+        this.yesDelete = false
+    }
+
+}
